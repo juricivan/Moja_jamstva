@@ -1,0 +1,1788 @@
+<!DOCTYPE html>
+<html lang="hr" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a" id="themeColorMeta">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Moja Jamstva">
+    <title>Moja Jamstva Pro — Google Drive Sinkronizacija</title>
+
+    <!-- Dinamički PWA Manifest i ikona učitavaju se u skripti prije rendera -->
+    <link id="dynamicManifest" rel="manifest" href="">
+    <link id="dynamicIcon" rel="icon" type="image/svg+xml" href="">
+    <link id="dynamicAppleIcon" rel="apple-touch-icon" href="">
+
+    <!-- Tailwind CSS s podrškom za tamni način rada (class) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+                    },
+                    colors: {
+                        samsung: {
+                            blue: '#0381fe',
+                            darkBg: '#0b0c10',
+                            darkCard: '#171923',
+                            lightBg: '#f2f4f7',
+                        }
+                    },
+                    borderRadius: {
+                        'oneui': '26px',
+                    }
+                }
+            }
+        };
+    </script>
+
+    <!-- Google Identity Services (OAuth 2.0) & Google API Client (asinkrono učitavanje za 0ms blokiranja) -->
+    <script src="https://accounts.google.com/gsi/client" async defer onload="onGisLoaded()"></script>
+    <script src="https://apis.google.com/js/api.js" async defer onload="onGapiLoaded()"></script>
+
+    <style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: contain;
+            padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0.4; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-slide-up { animation: slideUp 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+        .animate-fade-in { animation: fadeIn 0.18s ease-out forwards; }
+
+        /* One UI dodirni odziv */
+        .oneui-tap {
+            transition: transform 0.14s ease, background-color 0.15s ease;
+        }
+        .oneui-tap:active {
+            transform: scale(0.97);
+        }
+    </style>
+</head>
+<body class="bg-samsung-lightBg dark:bg-samsung-darkBg text-slate-900 dark:text-slate-100 antialiased select-none transition-colors duration-200">
+
+    <!-- ===================================================================== -->
+    <!-- BANNER ZA PWA INSTALACIJU (Prikazuje se kad je aplikacija na HTTPS)    -->
+    <!-- ===================================================================== -->
+    <div id="pwaInstallBanner" class="hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-3 text-xs flex items-center justify-between gap-3 shadow-md">
+        <div class="flex items-center gap-2.5">
+            <div class="bg-white/20 p-1.5 rounded-xl flex-shrink-0">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div>
+                <p class="font-bold text-[13px]">Instaliraj kao samostalnu aplikaciju</p>
+                <p class="text-blue-100 text-[11px]">Radi preko cijelog zaslona na Samsung S24 bez trake preglednika.</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+            <button onclick="triggerPwaInstall()" class="bg-white text-blue-700 font-bold px-3.5 py-2 rounded-xl shadow-sm oneui-tap">
+                Instaliraj
+            </button>
+            <button onclick="document.getElementById('pwaInstallBanner').classList.add('hidden')" class="p-1.5 text-blue-200 hover:text-white">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- ZAGLAVLJE (SAMSUNG ONE UI STIL)                                       -->
+    <!-- ===================================================================== -->
+    <header class="sticky top-0 z-30 bg-samsung-lightBg/90 dark:bg-samsung-darkBg/90 backdrop-blur-md border-b border-slate-200/70 dark:border-slate-800/80">
+        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+            
+            <!-- Naslov i status sinkronizacije -->
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-md shadow-blue-500/20 flex-shrink-0">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="font-bold text-base sm:text-lg leading-tight tracking-tight truncate">Moja Jamstva Pro</h1>
+                    <!-- Statusna traka Google Drivea -->
+                    <button onclick="openModal('driveSettingsModal')" class="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition truncate">
+                        <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0"></span>
+                        <span id="syncStatusText" class="truncate">Lokalno spremljeno (Poveži Drive)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Akcijske ikone u zaglavlju -->
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+                <!-- Ručna sinkronizacija (vidljivo kad je Drive povezan) -->
+                <button id="manualSyncBtn" onclick="syncWithGoogleDrive(true)" class="hidden p-2.5 rounded-2xl bg-white dark:bg-samsung-darkCard border border-slate-200/80 dark:border-slate-800 text-blue-600 dark:text-blue-400 oneui-tap" title="Sinkroniziraj sada">
+                    <svg id="syncSpinnerIcon" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </button>
+
+                <!-- Gumb Google Drive / Cloud postavke -->
+                <button onclick="openModal('driveSettingsModal')" class="px-3 py-2 rounded-2xl bg-white dark:bg-samsung-darkCard border border-slate-200/80 dark:border-slate-800 text-xs font-semibold flex items-center gap-1.5 shadow-sm oneui-tap" title="Google Drive Sinkronizacija">
+                    <svg class="w-4 h-4 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7.71 3.5L1.15 15l3.43 6 6.55-11.5M9.73 15L6.3 21h13.12l3.43-6m-.57-1L15.42 2H8.57l6.86 12h6.85z"/>
+                    </svg>
+                    <span id="headerDriveBtnLabel" class="hidden sm:inline">Google Drive</span>
+                </button>
+
+                <!-- Tamni / Svijetli način rada -->
+                <button onclick="toggleDarkMode()" class="p-2.5 rounded-2xl bg-white dark:bg-samsung-darkCard border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 shadow-sm oneui-tap" title="Promijeni temu">
+                    <svg id="themeSunIcon" class="hidden w-5 h-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="themeMoonIcon" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                </button>
+
+                <!-- Izbornik / Pomoć za instalaciju i backup -->
+                <button onclick="openModal('menuModal')" class="p-2.5 rounded-2xl bg-white dark:bg-samsung-darkCard border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 shadow-sm oneui-tap" title="Izbornik i instalacija">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"/></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===================================================================== -->
+    <!-- GLAVNI SADRŽAJ                                                        -->
+    <!-- ===================================================================== -->
+    <main class="max-w-3xl mx-auto px-4 pt-4 space-y-4">
+
+        <!-- ONE UI STATISTIKA (4 KARTICE) -->
+        <section class="grid grid-cols-4 gap-2 sm:gap-3">
+            <div onclick="setFilter('all')" class="cursor-pointer bg-white dark:bg-samsung-darkCard p-3 rounded-oneui shadow-sm border border-slate-200/60 dark:border-slate-800 text-center oneui-tap">
+                <span id="stat-total" class="block text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">0</span>
+                <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ukupno</span>
+            </div>
+            <div onclick="setFilter('active')" class="cursor-pointer bg-white dark:bg-samsung-darkCard p-3 rounded-oneui shadow-sm border border-emerald-200/70 dark:border-emerald-900/40 text-center oneui-tap">
+                <span id="stat-active" class="block text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">0</span>
+                <span class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">Aktivna</span>
+            </div>
+            <div onclick="setFilter('expiring')" class="cursor-pointer bg-white dark:bg-samsung-darkCard p-3 rounded-oneui shadow-sm border border-amber-200/70 dark:border-amber-900/40 text-center oneui-tap">
+                <span id="stat-expiring" class="block text-xl sm:text-2xl font-extrabold text-amber-500">0</span>
+                <span class="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Uskoro</span>
+            </div>
+            <div onclick="setFilter('expired')" class="cursor-pointer bg-white dark:bg-samsung-darkCard p-3 rounded-oneui shadow-sm border border-rose-200/70 dark:border-rose-900/40 text-center oneui-tap">
+                <span id="stat-expired" class="block text-xl sm:text-2xl font-extrabold text-rose-600 dark:text-rose-400">0</span>
+                <span class="text-[11px] font-semibold text-rose-700 dark:text-rose-400">Istekla</span>
+            </div>
+        </section>
+
+        <!-- TRAŽILICA I FILTERI -->
+        <section class="space-y-3">
+            <div class="relative">
+                <svg class="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+                </svg>
+                <input type="text" id="searchInput" oninput="renderList()" placeholder="Pretraži uređaje, trgovine, serijske brojeve..." 
+                    class="w-full pl-11 pr-10 py-3.5 bg-white dark:bg-samsung-darkCard border border-slate-200/80 dark:border-slate-800 rounded-oneui text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition select-text">
+                <button id="clearSearchBtn" onclick="clearSearch()" class="hidden absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="flex gap-2 overflow-x-auto no-scrollbar pb-0.5">
+                <button data-filter="all" onclick="setFilter('all')" class="filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-blue-600 text-white shadow-sm">
+                    Svi uređaji
+                </button>
+                <button data-filter="active" onclick="setFilter('active')" class="filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-white dark:bg-samsung-darkCard text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+                    Aktivna jamstva
+                </button>
+                <button data-filter="expiring" onclick="setFilter('expiring')" class="filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-white dark:bg-samsung-darkCard text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+                    Istječe &lt;30 dana
+                </button>
+                <button data-filter="expired" onclick="setFilter('expired')" class="filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-white dark:bg-samsung-darkCard text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800">
+                    Istekla
+                </button>
+            </div>
+        </section>
+
+        <!-- LISTA UREĐAJA I RAČUNA -->
+        <section id="itemsContainer" class="space-y-3">
+            <!-- Dinamički generirane kartice -->
+        </section>
+
+        <!-- PRAZNO STANJE -->
+        <div id="emptyState" class="hidden text-center py-12 px-5 bg-white dark:bg-samsung-darkCard rounded-oneui border border-slate-200/80 dark:border-slate-800 shadow-sm">
+            <div class="w-16 h-16 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-bold mb-1">Vaša arhiva računa je prazna</h3>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto mb-5">
+                Slikajte svoj prvi račun kamerom ili povežite Google Drive kako biste učitali postojeće račune.
+            </p>
+            <div class="flex flex-wrap items-center justify-center gap-2.5">
+                <button onclick="openFormModal()" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-3 rounded-2xl shadow-md oneui-tap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                    Dodaj prvi račun
+                </button>
+                <button onclick="openModal('driveSettingsModal')" class="inline-flex items-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm px-4 py-3 rounded-2xl oneui-tap">
+                    Poveži Google Drive
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- ===================================================================== -->
+    <!-- DONJA ONE UI AKCIJSKA TRAKA (LAKO DOHVATLJIVA PALCEM NA S24)           -->
+    <!-- ===================================================================== -->
+    <div class="fixed bottom-5 inset-x-0 z-30 pointer-events-none px-4">
+        <div class="max-w-3xl mx-auto flex items-center justify-end">
+            <button onclick="openFormModal()" class="pointer-events-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-full shadow-xl shadow-blue-600/35 flex items-center gap-2.5 font-bold text-sm oneui-tap">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                <span>Skeniraj račun</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 1: UNOS / UREĐIVANJE UREĐAJA I RAČUNA                           -->
+    <!-- ===================================================================== -->
+    <div id="formModal" class="fixed inset-0 z-40 hidden bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+        <div class="bg-white dark:bg-samsung-darkCard w-full max-w-lg rounded-t-oneui sm:rounded-oneui max-h-[94vh] flex flex-col shadow-2xl animate-slide-up overflow-hidden">
+            
+            <!-- Zaglavlje -->
+            <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between sticky top-0 z-10 bg-white dark:bg-samsung-darkCard">
+                <button type="button" onclick="requestCloseModal()" class="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-bold text-sm px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 oneui-tap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    <span>Natrag</span>
+                </button>
+                <h2 id="formModalTitle" class="text-base font-bold">Novi uređaj i račun</h2>
+                <div class="w-16"></div>
+            </div>
+
+            <!-- Forma -->
+            <form id="warrantyForm" onsubmit="handleFormSubmit(event)" class="p-5 overflow-y-auto space-y-5 select-text">
+                <input type="hidden" id="itemId">
+
+                <!-- FOTOGRAFIRANJE / SKENIRANJE RAČUNA -->
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Slika ili sken računa</label>
+                    
+                    <input type="file" id="fallbackCameraInput" accept="image/*" capture="environment" class="hidden" onchange="handleFileSelect(event)">
+                    <input type="file" id="galleryInput" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+
+                    <div id="imageUploadButtons" class="grid grid-cols-2 gap-3">
+                        <button type="button" onclick="startLiveCamera()" class="flex flex-col items-center justify-center gap-2 p-4 rounded-3xl border-2 border-dashed border-blue-400 dark:border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 oneui-tap">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            <span class="text-xs font-bold">Slikaj kamerom</span>
+                        </button>
+                        <button type="button" onclick="document.getElementById('galleryInput').click()" class="flex flex-col items-center justify-center gap-2 p-4 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 oneui-tap">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                            <span class="text-xs font-bold">Iz galerije</span>
+                        </button>
+                    </div>
+
+                    <!-- Pretpregled + rotacija i filter -->
+                    <div id="imagePreviewContainer" class="hidden mt-2 space-y-2.5">
+                        <div class="relative rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900">
+                            <img id="imagePreview" src="" alt="Pretpregled računa" class="w-full max-h-60 object-contain mx-auto">
+                            <div id="imageProcessingBadge" class="hidden absolute inset-0 bg-slate-900/75 flex items-center justify-center text-white text-xs font-semibold gap-2">
+                                <svg class="w-5 h-5 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                Optimizacija računa...
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-100 dark:bg-slate-800/80 p-2 rounded-2xl">
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="rotateCurrentImage()" class="px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-100 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1 oneui-tap">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    Rotiraj 90°
+                                </button>
+                                <button type="button" id="bwFilterBtn" onclick="toggleBwFilter()" class="px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-100 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1 oneui-tap">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                                    C/B Dokument
+                                </button>
+                            </div>
+                            <button type="button" onclick="removeSelectedImage()" class="px-3 py-1.5 bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold flex items-center gap-1 oneui-tap">
+                                Ukloni
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NAZIV UREĐAJA -->
+                <div>
+                    <label for="deviceName" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Naziv uređaja *</label>
+                    <input type="text" id="deviceName" required oninput="markFormDirty()" placeholder="npr. Samsung Galaxy S24, Perilica Bosch..." 
+                        class="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                </div>
+
+                <!-- TRGOVINA I OPIS / SERIJSKI BROJ -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label for="storeName" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Trgovina / Mjesto kupnje</label>
+                        <input type="text" id="storeName" oninput="markFormDirty()" placeholder="npr. Sancta Domenica, Links..." 
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    </div>
+                    <div>
+                        <label for="serialNumber" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Serijski broj / Napomena</label>
+                        <input type="text" id="serialNumber" oninput="markFormDirty()" placeholder="npr. S/N: R5CX12345..." 
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    </div>
+                </div>
+
+                <!-- DATUM KUPNJE I TRAJANJE JAMSTVA -->
+                <div class="grid grid-cols-2 gap-3.5">
+                    <div>
+                        <label for="purchaseDate" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Datum kupnje *</label>
+                        <input type="date" id="purchaseDate" required onchange="markFormDirty(); updateCalculatedExpiry();"
+                            class="w-full px-3.5 py-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="warrantyMonths" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Jamstvo (mjeseci) *</label>
+                        <input type="number" id="warrantyMonths" min="1" max="240" value="24" required oninput="markFormDirty(); updateCalculatedExpiry();"
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    </div>
+                </div>
+
+                <!-- BRZI ODABIR MJESECI -->
+                <div class="grid grid-cols-4 gap-2">
+                    <button type="button" onclick="setWarrantyMonths(12)" class="py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-xs font-bold oneui-tap">12 mj.</button>
+                    <button type="button" onclick="setWarrantyMonths(24)" class="py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-xs font-bold oneui-tap">24 mj.</button>
+                    <button type="button" onclick="setWarrantyMonths(36)" class="py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-xs font-bold oneui-tap">36 mj.</button>
+                    <button type="button" onclick="setWarrantyMonths(60)" class="py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-xs font-bold oneui-tap">60 mj.</button>
+                </div>
+
+                <!-- IZRAČUNATI DATUM ISTEKA -->
+                <div class="bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800/60 rounded-2xl p-3.5 flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-700 dark:text-slate-300">Jamstvo vrijedi do:</span>
+                    <span id="calculatedExpiryDisplay" class="text-sm font-extrabold text-blue-700 dark:text-blue-400">--.--.----.</span>
+                </div>
+
+                <div class="pt-1 pb-4 sm:pb-0">
+                    <button type="submit" class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 oneui-tap">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        <span>Spremi uređaj i račun</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 1B: KAMERA UŽIVO UNUTAR APLIKACIJE                              -->
+    <!-- ===================================================================== -->
+    <div id="liveCameraModal" class="fixed inset-0 z-50 hidden bg-black flex flex-col">
+        <div class="p-4 flex items-center justify-between bg-black/85 text-white z-10">
+            <button type="button" onclick="stopLiveCamera()" class="flex items-center gap-1.5 text-sm font-bold px-3.5 py-2 rounded-2xl bg-white/15 oneui-tap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                Odustani
+            </button>
+            <span class="text-xs font-semibold text-slate-300">Skeniranje računa</span>
+            <button type="button" onclick="useSystemCameraFallback()" class="text-xs font-bold text-blue-400 underline">
+                Sistemska kamera
+            </button>
+        </div>
+
+        <div class="relative flex-1 flex items-center justify-center overflow-hidden bg-black">
+            <video id="cameraVideoStream" autoplay playsinline class="w-full h-full object-cover"></video>
+            <div class="absolute inset-6 border-2 border-white/40 rounded-3xl pointer-events-none flex items-end justify-center pb-4">
+                <span class="bg-black/65 text-white text-xs px-3.5 py-1.5 rounded-full backdrop-blur-sm">Smjestite račun unutar okvira</span>
+            </div>
+        </div>
+
+        <div class="p-6 bg-black flex items-center justify-center">
+            <button type="button" onclick="captureLivePhoto()" class="w-20 h-20 rounded-full border-4 border-white p-1 flex items-center justify-center oneui-tap" title="Fotografiraj">
+                <div class="w-15 h-15 w-full h-full bg-white rounded-full"></div>
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 2: DETALJNI PRIKAZ UREĐAJA                                      -->
+    <!-- ===================================================================== -->
+    <div id="detailModal" class="fixed inset-0 z-40 hidden bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+        <div class="bg-white dark:bg-samsung-darkCard w-full max-w-lg rounded-t-oneui sm:rounded-oneui max-h-[94vh] flex flex-col shadow-2xl animate-slide-up overflow-hidden">
+            
+            <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <button type="button" onclick="requestCloseModal()" class="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-bold text-sm px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 oneui-tap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    <span>Natrag</span>
+                </button>
+
+                <span id="detailStatusBadge" class="px-3 py-1 rounded-full text-xs font-extrabold">Status</span>
+
+                <div class="flex items-center gap-1.5">
+                    <button onclick="editCurrentItem()" class="p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-blue-600 oneui-tap" title="Uredi">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                    </button>
+                    <button onclick="promptDeleteCurrentItem()" class="p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-rose-600 dark:text-rose-400 oneui-tap" title="Obriši">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-5 select-text">
+                <div>
+                    <h2 id="detailName" class="text-xl font-extrabold leading-snug">Naziv uređaja</h2>
+                    <p id="detailStore" class="text-xs font-bold text-blue-600 dark:text-blue-400 mt-1"></p>
+                    <p id="detailDesc" class="text-sm text-slate-600 dark:text-slate-300 mt-1.5 whitespace-pre-line"></p>
+                </div>
+
+                <div class="bg-slate-50 dark:bg-slate-800/60 rounded-3xl p-4 border border-slate-200/70 dark:border-slate-700/70 grid grid-cols-2 gap-4">
+                    <div>
+                        <span class="block text-[11px] font-bold uppercase text-slate-400">Datum kupnje</span>
+                        <span id="detailPurchaseDate" class="text-sm font-bold mt-0.5 block">01.01.2026.</span>
+                    </div>
+                    <div>
+                        <span class="block text-[11px] font-bold uppercase text-slate-400">Trajanje jamstva</span>
+                        <span id="detailDuration" class="text-sm font-bold mt-0.5 block">24 mj.</span>
+                    </div>
+                    <div>
+                        <span class="block text-[11px] font-bold uppercase text-slate-400">Vrijedi do</span>
+                        <span id="detailExpiryDate" class="text-sm font-bold mt-0.5 block">01.01.2028.</span>
+                    </div>
+                    <div>
+                        <span class="block text-[11px] font-bold uppercase text-slate-400">Preostalo</span>
+                        <span id="detailRemaining" class="text-sm font-extrabold mt-0.5 block">730 dana</span>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Skenirani račun</span>
+                        <button id="downloadReceiptBtn" onclick="downloadCurrentReceipt()" class="hidden text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            Spremi sliku
+                        </button>
+                    </div>
+
+                    <div id="detailReceiptContainer" onclick="openFullscreenReceipt()" class="cursor-zoom-in relative rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900">
+                        <img id="detailReceiptImg" src="" alt="Račun" class="w-full max-h-72 object-contain mx-auto">
+                        <div class="absolute bottom-3 right-3 bg-black/75 text-white px-3 py-1.5 rounded-2xl text-xs font-bold flex items-center gap-1.5 backdrop-blur-sm">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+                            Povećaj račun
+                        </div>
+                    </div>
+
+                    <div id="detailNoReceipt" class="hidden p-6 rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-slate-400 text-xs">
+                        Za ovaj uređaj nije priložena slika računa.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 3: FULLSCREEN PREGLEDNIK RAČUNA (ZOOM)                          -->
+    <!-- ===================================================================== -->
+    <div id="fullscreenModal" class="fixed inset-0 z-50 hidden bg-black flex flex-col">
+        <div class="p-4 flex items-center justify-between bg-gradient-to-b from-black/90 to-transparent z-10 text-white">
+            <button onclick="requestCloseModal()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white/15 text-sm font-bold oneui-tap">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                Natrag
+            </button>
+            <div class="flex items-center gap-2">
+                <button onclick="toggleZoom()" class="p-2.5 rounded-full bg-white/15 hover:bg-white/25" title="Povećaj / Smanji">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/></svg>
+                </button>
+                <button onclick="downloadCurrentReceipt()" class="p-2.5 rounded-full bg-white/15 hover:bg-white/25" title="Preuzmi">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 overflow-auto flex items-center justify-center p-2">
+            <img id="fullscreenImg" src="" alt="Račun puni zaslon" onclick="toggleZoom()" class="max-w-full max-h-full object-contain transition-transform duration-200 cursor-zoom-in">
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 4: GOOGLE DRIVE SINKRONIZACIJA I OAUTH 2.0 POSTAVKE             -->
+    <!-- ===================================================================== -->
+    <div id="driveSettingsModal" class="fixed inset-0 z-40 hidden bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+        <div class="bg-white dark:bg-samsung-darkCard w-full max-w-lg rounded-t-oneui sm:rounded-oneui max-h-[94vh] flex flex-col shadow-2xl animate-slide-up overflow-hidden">
+            
+            <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <button onclick="requestCloseModal()" class="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-bold text-sm px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 oneui-tap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    <span>Natrag</span>
+                </button>
+                <h3 class="text-base font-bold">Google Drive Sinkronizacija</h3>
+                <div class="w-16"></div>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-5 select-text">
+                
+                <!-- Status povezivanja -->
+                <div id="driveConnectedBox" class="hidden bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-3xl p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm">G</div>
+                            <div>
+                                <p class="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">Povezano s Google Driveom</p>
+                                <p id="driveUserEmail" class="text-[11px] text-emerald-700 dark:text-emerald-400">Mapa: Moja_Jamstva_App</p>
+                            </div>
+                        </div>
+                        <span id="lastSyncTimeLabel" class="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Sinkronizirano</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2.5 pt-1">
+                        <button type="button" onclick="syncWithGoogleDrive(true)" class="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 oneui-tap">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            Sinkroniziraj sada
+                        </button>
+                        <button type="button" onclick="disconnectGoogleDrive()" class="py-2.5 px-3 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-2xl text-xs font-bold oneui-tap">
+                            Odjavi račun
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Unos Google Client ID-a -->
+                <div class="space-y-3">
+                    <div>
+                        <label for="googleClientIdInput" class="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                            Google Cloud OAuth Client ID
+                        </label>
+                        <input type="text" id="googleClientIdInput" placeholder="npr. 1234567890-abcxyz.apps.googleusercontent.com" 
+                            class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <button type="button" onclick="saveClientId()" class="py-3 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-100 rounded-2xl text-xs font-bold oneui-tap">
+                            Spremi Client ID
+                        </button>
+                        <button type="button" onclick="connectGoogleDrive()" class="py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 oneui-tap">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M7.71 3.5L1.15 15l3.43 6 6.55-11.5M9.73 15L6.3 21h13.12l3.43-6m-.57-1L15.42 2H8.57l6.86 12h6.85z"/></svg>
+                            Poveži Google Drive
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Upozorenje ako se otvara iz file:// umjesto HTTPS -->
+                <div id="protocolWarningBox" class="hidden bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-3.5 text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                    <p class="font-bold">Napomena o adresi pokretanja:</p>
+                    <p>Trenutno je aplikacija otvorena lokalno (<span id="currentOriginDisplay" class="font-mono font-bold"></span>). Za Google prijavu i PWA instalaciju na Samsung S24, postavite ovu datoteku na besplatni HTTPS hosting (npr. <b>Netlify Drop</b> ili <b>GitHub Pages</b>).</p>
+                </div>
+
+                <!-- Korak-po-korak upute kako besplatno dobiti Client ID u 2 minute -->
+                <details class="bg-slate-50 dark:bg-slate-800/50 rounded-3xl p-4 border border-slate-200/80 dark:border-slate-700/80" open>
+                    <summary class="text-xs font-extrabold cursor-pointer text-slate-800 dark:text-slate-100 flex items-center justify-between">
+                        <span>Kako besplatno dobiti Client ID u 2 minute?</span>
+                        <span class="text-blue-600 dark:text-blue-400 text-[11px]">Upute ▼</span>
+                    </summary>
+                    <ol class="mt-3 space-y-2 text-xs text-slate-600 dark:text-slate-300 list-decimal list-inside leading-relaxed">
+                        <li>Otvorite <b>console.cloud.google.com</b> i prijavite se svojim Gmail računom.</li>
+                        <li>Kliknite <b>New Project</b> (npr. naziv <i>Moja Jamstva</i>) i otvorite ga.</li>
+                        <li>U izborniku lijevo idite na <b>APIs &amp; Services &rarr; Library</b>, pronađite <b>Google Drive API</b> i kliknite <b>Enable</b>.</li>
+                        <li>Idite na <b>OAuth consent screen</b> &rarr; odaberite <b>External</b> &rarr; upišite naziv aplikacije i svoj Gmail, a pod <i>Test users</i> dodajte svoj Gmail.</li>
+                        <li>Idite na <b>Credentials &rarr; Create Credentials &rarr; OAuth client ID</b> &rarr; odaberite <b>Web application</b>.</li>
+                        <li>Pod <b>Authorized JavaScript origins</b> dodajte adresu na kojoj otvarate aplikaciju (npr. <code class="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono text-[11px]" id="originHintText">https://vasa-stranica.netlify.app</code>).</li>
+                        <li>Kopirajte dobiveni <b>Client ID</b> u polje iznad i kliknite <b>Poveži Google Drive</b>!</li>
+                    </ol>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 5: IZBORNIK, INSTALACIJA NA S24 I RUČNI BACKUP                  -->
+    <!-- ===================================================================== -->
+    <div id="menuModal" class="fixed inset-0 z-40 hidden bg-slate-950/70 backdrop-blur-sm flex items-end sm:items-center justify-center">
+        <div class="bg-white dark:bg-samsung-darkCard w-full max-w-md rounded-t-oneui sm:rounded-oneui max-h-[92vh] flex flex-col shadow-2xl animate-slide-up overflow-hidden">
+            
+            <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <button onclick="requestCloseModal()" class="flex items-center gap-1 text-slate-600 dark:text-slate-300 font-bold text-sm px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800 oneui-tap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                    <span>Natrag</span>
+                </button>
+                <h3 class="text-base font-bold">Instalacija i Sigurnosna kopija</h3>
+                <div class="w-16"></div>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-5 select-text">
+                
+                <!-- Upute za PWA instalaciju na Samsung S24 -->
+                <div class="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 rounded-3xl p-4 space-y-2.5">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-blue-800 dark:text-blue-300">Kako instalirati kao pravu aplikaciju na Samsung S24?</h4>
+                    <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Android i Samsung Internet / Chrome zahtijevaju sigurnu <b>HTTPS</b> adresu kako bi prikazali gumb <b>"Instaliraj aplikaciju"</b> (bez adresne trake preglednika) i omogućili Google Drive prijavu:
+                    </p>
+                    <ol class="text-xs text-slate-700 dark:text-slate-200 space-y-1.5 list-decimal list-inside">
+                        <li>Preuzmite ovu HTML datoteku (gumb ispod) i preimenujte je u <code class="font-mono font-bold">index.html</code>.</li>
+                        <li>Besplatno je povucite na <b>app.netlify.com/drop</b> ili <b>GitHub Pages</b> — odmah dobivate svoj privatni <code class="font-mono">https://...</code> link.</li>
+                        <li>Otvorite taj link u Chromeu na svom <b>Samsung S24</b> i kliknite <b>Instaliraj aplikaciju</b> (ili u izborniku <i>Dodaj na početni zaslon &rarr; Instaliraj</i>).</li>
+                    </ol>
+                    <div class="pt-1 flex gap-2">
+                        <button id="menuInstallBtn" onclick="triggerPwaInstall()" class="hidden flex-1 py-2.5 bg-blue-600 text-white rounded-2xl text-xs font-bold oneui-tap">
+                            Instaliraj aplikaciju odmah
+                        </button>
+                        <button onclick="downloadAppSource()" class="flex-1 py-2.5 bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 rounded-2xl text-xs font-bold oneui-tap">
+                            Preuzmi kod (index.html)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Ručna sigurnosna kopija (Export/Import) -->
+                <div class="space-y-2.5">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ručna sigurnosna kopija (Offline)</h4>
+                    <button onclick="exportDatabase()" class="w-full py-3.5 px-4 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 oneui-tap">
+                        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Izvezi sigurnosnu kopiju (.json)
+                    </button>
+
+                    <div>
+                        <input type="file" id="importFileInput" accept=".json" class="hidden" onchange="importDatabase(event)">
+                        <button onclick="document.getElementById('importFileInput').click()" class="w-full py-3.5 px-4 bg-slate-100 dark:bg-slate-800/60 hover:bg-slate-200 text-slate-800 dark:text-slate-200 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 oneui-tap">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                            Uvezi sigurnosnu kopiju (.json)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 6: POTVRDA BRISANJA                                            -->
+    <!-- ===================================================================== -->
+    <div id="confirmDeleteModal" class="fixed inset-0 z-50 hidden bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-samsung-darkCard w-full max-w-sm rounded-oneui p-6 shadow-2xl text-center space-y-4 animate-fade-in">
+            <div class="w-12 h-12 bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center mx-auto">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+            <h3 class="text-lg font-extrabold">Obrisati ovaj uređaj?</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Uređaj i slika računa bit će uklonjeni s ovog uređaja i s Google Drivea.</p>
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button onclick="closeConfirmDelete()" class="py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 font-bold text-sm oneui-tap">Odustani</button>
+                <button onclick="confirmDeleteItem()" class="py-3 rounded-2xl bg-rose-600 text-white font-bold text-sm oneui-tap">Obriši</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST OBAVIJEST -->
+    <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 hidden bg-slate-900 dark:bg-slate-800 text-white px-4 py-2.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-2 border border-slate-700 whitespace-nowrap">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="toastMessage">Spremljeno</span>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- JAVASCRIPT: PWA, INDEXEDDB, KAMERA I GOOGLE DRIVE API v3              -->
+    <!-- ===================================================================== -->
+    <script>
+        // ==========================================
+        // 0. DINAMIČKI PWA MANIFEST I SERVICE WORKER
+        // ==========================================
+        (function setupPWA() {
+            // SVG ikona aplikacije (štit s kvačicom na plavoj One UI podlozi)
+            const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+                <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0381fe"/><stop offset="100%" stop-color="#0052cc"/></linearGradient></defs>
+                <rect width="512" height="512" rx="115" fill="url(#g)"/>
+                <path d="M256 96L128 152v96c0 88.4 54.6 170.8 128 196 73.4-25.2 128-107.6 128-196v-96L256 96zm-24 236l-68-68 28.3-28.3L232 275.4l87.7-87.7 28.3 28.3L232 332z" fill="#ffffff"/>
+            </svg>`;
+            const iconUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgIcon);
+
+            document.getElementById('dynamicIcon').href = iconUrl;
+            document.getElementById('dynamicAppleIcon').href = iconUrl;
+
+            const startUrl = window.location.href.split('#')[0];
+            const manifestObj = {
+                name: 'Moja Jamstva Pro',
+                short_name: 'Moja Jamstva',
+                description: 'Digitalna evidencija računa i jamstava s Google Drive sinkronizacijom',
+                start_url: startUrl,
+                display: 'standalone',
+                background_color: '#0b0c10',
+                theme_color: '#0381fe',
+                orientation: 'portrait',
+                icons: [
+                    { src: iconUrl, sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+                    { src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
+                ]
+            };
+
+            const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
+            document.getElementById('dynamicManifest').href = URL.createObjectURL(manifestBlob);
+
+            // Registracija Service Workera (radi na HTTPS i localhostu)
+            if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
+                const swCode = `
+                    const CACHE_NAME = 'moja-jamstva-pro-v1';
+                    self.addEventListener('install', (e) => self.skipWaiting());
+                    self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+                    self.addEventListener('fetch', (e) => {
+                        if (e.request.method !== 'GET') return;
+                        e.respondWith(
+                            fetch(e.request).catch(() => caches.match(e.request))
+                        );
+                    });
+                `;
+                const swBlob = new Blob([swCode], { type: 'application/javascript' });
+                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+            }
+        })();
+
+        // Hvatanje događaja za PWA instalaciju na Androidu (Samsung S24)
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            document.getElementById('pwaInstallBanner').classList.remove('hidden');
+            document.getElementById('menuInstallBtn').classList.remove('hidden');
+        });
+
+        async function triggerPwaInstall() {
+            if (!deferredInstallPrompt) {
+                openModal('menuModal');
+                return;
+            }
+            deferredInstallPrompt.prompt();
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            if (outcome === 'accepted') {
+                document.getElementById('pwaInstallBanner').classList.add('hidden');
+                showToast('Aplikacija se instalira na vaš uređaj!');
+            }
+            deferredInstallPrompt = null;
+        }
+
+        // ==========================================
+        // 1. GLOBALNO STANJE I LOKALNA BAZA (IndexedDB)
+        // ==========================================
+        const DB_NAME = 'MojaJamstvaProDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'warranties';
+        const META_CACHE_KEY = 'mjp_meta_cache_v1';
+        const DELETED_IDS_KEY = 'mjp_deleted_ids_v1';
+        const DRIVE_CLIENT_ID_KEY = 'mjp_google_client_id';
+        const DRIVE_FOLDER_NAME = 'Moja_Jamstva_App';
+        const DRIVE_DB_FILENAME = 'jamstva_baza.json';
+        const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+        let db = null;
+        let allItems = [];
+        let deletedIds = [];
+        let currentFilter = 'all';
+        let activeDetailItem = null;
+        let isZoomed = false;
+        let isFormDirty = false;
+
+        // Kamera i obrada slike
+        let rawImageObj = null;
+        let currentRotation = 0;
+        let isBwFilterActive = false;
+        let currentProcessedBase64 = null;
+        let cameraStream = null;
+
+        // Google Drive API stanje
+        let gisInited = false;
+        let gapiInited = false;
+        let tokenClient = null;
+        let googleAccessToken = null;
+        let isDriveConnected = false;
+        let isSyncing = false;
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) return reject('IndexedDB nije podržan');
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onerror = (e) => reject(e.target.error);
+                req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                req.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains(STORE_NAME)) {
+                        database.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+            });
+        }
+
+        async function loadAllItems() {
+            // Trenutni prikaz metapodataka iz localStorage (0ms odziv)
+            try {
+                const cached = localStorage.getItem(META_CACHE_KEY);
+                if (cached && allItems.length === 0) {
+                    allItems = JSON.parse(cached);
+                    updateStats();
+                    renderList();
+                }
+                const delCached = localStorage.getItem(DELETED_IDS_KEY);
+                if (delCached) deletedIds = JSON.parse(delCached);
+            } catch (e) {}
+
+            if (!db) return;
+            return new Promise((resolve) => {
+                const tx = db.transaction([STORE_NAME], 'readonly');
+                const req = tx.objectStore(STORE_NAME).getAll();
+                req.onsuccess = () => {
+                    allItems = req.result || [];
+                    saveMetaCache();
+                    updateStats();
+                    renderList();
+                    resolve();
+                };
+            });
+        }
+
+        function saveMetaCache() {
+            try {
+                const meta = allItems.map(({ receiptImage, ...rest }) => rest);
+                localStorage.setItem(META_CACHE_KEY, JSON.stringify(meta));
+                localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(deletedIds));
+            } catch (e) {}
+        }
+
+        function saveItemToDB(item) {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                    const idx = allItems.findIndex(i => i.id === item.id);
+                    if (idx >= 0) allItems[idx] = item;
+                    else allItems.push(item);
+                    resolve();
+                    return;
+                }
+                const tx = db.transaction([STORE_NAME], 'readwrite');
+                const req = tx.objectStore(STORE_NAME).put(item);
+                req.onsuccess = () => resolve();
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        function deleteItemFromDB(id) {
+            return new Promise((resolve, reject) => {
+                if (!deletedIds.includes(id)) deletedIds.push(id);
+                saveMetaCache();
+                if (!db) {
+                    allItems = allItems.filter(i => i.id !== id);
+                    resolve();
+                    return;
+                }
+                const tx = db.transaction([STORE_NAME], 'readwrite');
+                const req = tx.objectStore(STORE_NAME).delete(id);
+                req.onsuccess = () => resolve();
+                req.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // ==========================================
+        // 2. GOOGLE DRIVE API v3 & OAUTH 2.0 (GIS)
+        // ==========================================
+        function onGisLoaded() {
+            gisInited = true;
+            maybeInitGoogleAuth();
+        }
+
+        function onGapiLoaded() {
+            gapi.load('client', async () => {
+                await gapi.client.init({
+                    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+                });
+                gapiInited = true;
+                maybeInitGoogleAuth();
+            });
+        }
+
+        function maybeInitGoogleAuth() {
+            const clientId = localStorage.getItem(DRIVE_CLIENT_ID_KEY);
+            if (!gisInited || !gapiInited || !clientId) return;
+
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: clientId,
+                    scope: DRIVE_SCOPE,
+                    callback: async (tokenResponse) => {
+                        if (tokenResponse.error) {
+                            showToast('Prijava na Google nije uspjela.');
+                            updateSyncStatusUI('error', 'Greška prijave');
+                            return;
+                        }
+                        googleAccessToken = tokenResponse.access_token;
+                        gapi.client.setToken({ access_token: googleAccessToken });
+                        isDriveConnected = true;
+                        localStorage.setItem('mjp_drive_was_connected', '1');
+                        
+                        updateDriveConnectedUI(true);
+                        await syncWithGoogleDrive(false);
+                    },
+                });
+
+                // Ako je korisnik ranije bio povezan, pokušaj tihu obnovu tokena
+                if (localStorage.getItem('mjp_drive_was_connected') === '1' && navigator.onLine) {
+                    tokenClient.requestAccessToken({ prompt: '' });
+                }
+            } catch (err) {
+                console.error('GIS init greška:', err);
+            }
+        }
+
+        function saveClientId() {
+            const val = document.getElementById('googleClientIdInput').value.trim();
+            if (!val) {
+                showToast('Unesite valjani Client ID.');
+                return;
+            }
+            localStorage.setItem(DRIVE_CLIENT_ID_KEY, val);
+            maybeInitGoogleAuth();
+            showToast('Client ID je spremljen!');
+        }
+
+        function connectGoogleDrive() {
+            const inputVal = document.getElementById('googleClientIdInput').value.trim();
+            if (inputVal) {
+                localStorage.setItem(DRIVE_CLIENT_ID_KEY, inputVal);
+            }
+            const clientId = localStorage.getItem(DRIVE_CLIENT_ID_KEY);
+            if (!clientId) {
+                showToast('Prvo zalijepite svoj Google Client ID!');
+                return;
+            }
+            if (!gisInited || !gapiInited) {
+                showToast('Google servisi se još učitavaju, pokušajte za sekundu...');
+                return;
+            }
+            maybeInitGoogleAuth();
+            tokenClient.requestAccessToken({ prompt: 'consent' });
+        }
+
+        function disconnectGoogleDrive() {
+            if (googleAccessToken && window.google) {
+                google.accounts.oauth2.revoke(googleAccessToken, () => {});
+            }
+            googleAccessToken = null;
+            isDriveConnected = false;
+            localStorage.removeItem('mjp_drive_was_connected');
+            updateDriveConnectedUI(false);
+            updateSyncStatusUI('offline', 'Lokalno spremljeno');
+            showToast('Google Drive je odjavljen');
+        }
+
+        function updateDriveConnectedUI(connected) {
+            document.getElementById('driveConnectedBox').classList.toggle('hidden', !connected);
+            document.getElementById('manualSyncBtn').classList.toggle('hidden', !connected);
+            document.getElementById('headerDriveBtnLabel').textContent = connected ? 'Drive Aktivan' : 'Google Drive';
+        }
+
+        function updateSyncStatusUI(state, text) {
+            const dot = document.getElementById('syncStatusDot');
+            const label = document.getElementById('syncStatusText');
+            const spinner = document.getElementById('syncSpinnerIcon');
+            label.textContent = text;
+
+            spinner.classList.remove('animate-spin');
+            if (state === 'syncing') {
+                dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-ping flex-shrink-0';
+                spinner.classList.add('animate-spin');
+            } else if (state === 'synced') {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0';
+            } else if (state === 'error') {
+                dot.className = 'w-2 h-2 rounded-full bg-rose-500 flex-shrink-0';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-slate-400 flex-shrink-0';
+            }
+        }
+
+        // Pronađi ili kreiraj mapu 'Moja_Jamstva_App' na korisnikovom Google Driveu
+        async function getOrCreateAppFolder() {
+            const q = `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const res = await gapi.client.drive.files.list({ q, fields: 'files(id, name)' });
+            if (res.result.files && res.result.files.length > 0) {
+                return res.result.files[0].id;
+            }
+            const createRes = await gapi.client.drive.files.create({
+                resource: {
+                    name: DRIVE_FOLDER_NAME,
+                    mimeType: 'application/vnd.google-apps.folder'
+                },
+                fields: 'id'
+            });
+            return createRes.result.id;
+        }
+
+        // Pronađi datoteku jamstva_baza.json unutar mape
+        async function findDatabaseFileInFolder(folderId) {
+            const q = `name='${DRIVE_DB_FILENAME}' and '${folderId}' in parents and trashed=false`;
+            const res = await gapi.client.drive.files.list({ q, fields: 'files(id, name, modifiedTime)' });
+            return (res.result.files && res.result.files.length > 0) ? res.result.files[0] : null;
+        }
+
+        // Dvosmjerna sinkronizacija (spajanje lokalnih i Drive zapisa po ID-u i vremenu izmjene)
+        async function syncWithGoogleDrive(showNotification = false) {
+            if (!isDriveConnected || !googleAccessToken) return;
+            if (!navigator.onLine) {
+                updateSyncStatusUI('offline', 'Offline — čeka internet za Drive');
+                return;
+            }
+            if (isSyncing) return;
+
+            isSyncing = true;
+            updateSyncStatusUI('syncing', 'Sinkronizacija s Google Driveom...');
+
+            try {
+                const folderId = await getOrCreateAppFolder();
+                const remoteFile = await findDatabaseFileInFolder(folderId);
+                let remoteItems = [];
+                let remoteDeletedIds = [];
+
+                // 1. Ako datoteka već postoji na Driveu, preuzmi je i spoji podatke
+                if (remoteFile) {
+                    const fileRes = await gapi.client.drive.files.get({
+                        fileId: remoteFile.id,
+                        alt: 'media'
+                    });
+                    const parsed = typeof fileRes.result === 'string' ? JSON.parse(fileRes.result) : fileRes.result;
+                    if (parsed && Array.isArray(parsed.items)) {
+                        remoteItems = parsed.items;
+                        remoteDeletedIds = Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [];
+                    }
+                }
+
+                // 2. Spoji obrisane ID-eve
+                const allDeletedSet = new Set([...deletedIds, ...remoteDeletedIds]);
+                deletedIds = Array.from(allDeletedSet);
+
+                // 3. Spoji uređaje (noviji updatedAt pobjeđuje)
+                const mergedMap = new Map();
+                [...remoteItems, ...allItems].forEach(item => {
+                    if (!item || !item.id || allDeletedSet.has(item.id)) return;
+                    const existing = mergedMap.get(item.id);
+                    if (!existing) {
+                        mergedMap.set(item.id, item);
+                    } else {
+                        const timeA = new Date(existing.updatedAt || 0).getTime();
+                        const timeB = new Date(item.updatedAt || 0).getTime();
+                        if (timeB >= timeA) mergedMap.set(item.id, item);
+                    }
+                });
+
+                const mergedList = Array.from(mergedMap.values());
+
+                // 4. Spremi spojenu listu u lokalni IndexedDB
+                for (const item of mergedList) {
+                    await saveItemToDB(item);
+                }
+                for (const delId of deletedIds) {
+                    if (db) {
+                        const tx = db.transaction([STORE_NAME], 'readwrite');
+                        tx.objectStore(STORE_NAME).delete(delId);
+                    }
+                }
+                allItems = mergedList;
+                saveMetaCache();
+                updateStats();
+                renderList();
+
+                // 5. Pošalji ažuriranu bazu natrag na Google Drive
+                const payload = JSON.stringify({
+                    app: 'Moja Jamstva Pro',
+                    lastSync: new Date().toISOString(),
+                    deletedIds,
+                    items: mergedList
+                });
+
+                const boundary = '-------314159265358979323846';
+                const delimiter = "\r\n--" + boundary + "\r\n";
+                const closeDelim = "\r\n--" + boundary + "--";
+
+                const metadata = remoteFile
+                    ? { name: DRIVE_DB_FILENAME, mimeType: 'application/json' }
+                    : { name: DRIVE_DB_FILENAME, mimeType: 'application/json', parents: [folderId] };
+
+                const multipartRequestBody =
+                    delimiter +
+                    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                    JSON.stringify(metadata) +
+                    delimiter +
+                    'Content-Type: application/json\r\n\r\n' +
+                    payload +
+                    closeDelim;
+
+                const uploadPath = remoteFile
+                    ? `/upload/drive/v3/files/${remoteFile.id}`
+                    : '/upload/drive/v3/files';
+                const uploadMethod = remoteFile ? 'PATCH' : 'POST';
+
+                await gapi.client.request({
+                    path: uploadPath,
+                    method: uploadMethod,
+                    params: { uploadType: 'multipart' },
+                    headers: { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
+                    body: multipartRequestBody
+                });
+
+                const nowTime = new Date().toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' });
+                updateSyncStatusUI('synced', `Sinkronizirano s Driveom (${nowTime})`);
+                document.getElementById('lastSyncTimeLabel').textContent = `Zadnje: ${nowTime}`;
+                if (showNotification) showToast('Sinkronizirano s Google Driveom!');
+            } catch (err) {
+                console.error('Drive sync greška:', err);
+                // Ako je token istekao (401), označi da je potrebna ponovna potvrda
+                if (err && err.status === 401) {
+                    isDriveConnected = false;
+                    updateDriveConnectedUI(false);
+                    updateSyncStatusUI('error', 'Sesija istekla — kliknite za obnovu');
+                } else {
+                    updateSyncStatusUI('error', 'Greška sinkronizacije (spremljeno lokalno)');
+                }
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        // Automatska sinkronizacija čim se mobitel spoji na internet
+        window.addEventListener('online', () => {
+            if (isDriveConnected) syncWithGoogleDrive(false);
+        });
+        window.addEventListener('offline', () => {
+            if (isDriveConnected) updateSyncStatusUI('offline', 'Offline — spremljeno lokalno');
+        });
+
+        // ==========================================
+        // 3. ANDROID TIPKA 'NATRAG' & UPRAVLJANJE MODALIMA
+        // ==========================================
+        function openModal(modalId) {
+            const el = document.getElementById(modalId);
+            if (!el) return;
+            el.classList.remove('hidden');
+            window.history.pushState({ modal: modalId }, '', `#${modalId}`);
+        }
+
+        function requestCloseModal() {
+            if (window.location.hash) {
+                window.history.back();
+            } else {
+                closeAllModalsVisually();
+            }
+        }
+
+        function closeAllModalsVisually() {
+            stopLiveCamera();
+            ['formModal', 'detailModal', 'fullscreenModal', 'driveSettingsModal', 'menuModal', 'confirmDeleteModal'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            isFormDirty = false;
+        }
+
+        window.addEventListener('popstate', () => {
+            if (cameraStream) { stopLiveCamera(); return; }
+            if (!document.getElementById('fullscreenModal').classList.contains('hidden')) {
+                document.getElementById('fullscreenModal').classList.add('hidden');
+                return;
+            }
+            if (!document.getElementById('confirmDeleteModal').classList.contains('hidden')) {
+                document.getElementById('confirmDeleteModal').classList.add('hidden');
+                return;
+            }
+            closeAllModalsVisually();
+        });
+
+        function markFormDirty() { isFormDirty = true; }
+
+        // ==========================================
+        // 4. KAMERA UŽIVO, ROTACIJA, C/B FILTER I KOMPRESIJA
+        // ==========================================
+        async function startLiveCamera() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                try {
+                    cameraStream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                        audio: false
+                    });
+                    document.getElementById('cameraVideoStream').srcObject = cameraStream;
+                    document.getElementById('liveCameraModal').classList.remove('hidden');
+                    window.history.pushState({ modal: 'camera' }, '', '#camera');
+                    return;
+                } catch (err) {
+                    console.warn('Prelazak na sistemsku kameru:', err);
+                }
+            }
+            useSystemCameraFallback();
+        }
+
+        function useSystemCameraFallback() {
+            stopLiveCamera();
+            document.getElementById('fallbackCameraInput').click();
+        }
+
+        function stopLiveCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+            }
+            const videoEl = document.getElementById('cameraVideoStream');
+            if (videoEl) videoEl.srcObject = null;
+            document.getElementById('liveCameraModal').classList.add('hidden');
+        }
+
+        function captureLivePhoto() {
+            const video = document.getElementById('cameraVideoStream');
+            if (!video || !video.videoWidth) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            stopLiveCamera();
+            loadImageIntoProcessor(dataUrl);
+            markFormDirty();
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                loadImageIntoProcessor(e.target.result);
+                markFormDirty();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function loadImageIntoProcessor(src) {
+            document.getElementById('imageUploadButtons').classList.add('hidden');
+            document.getElementById('imagePreviewContainer').classList.remove('hidden');
+            document.getElementById('imageProcessingBadge').classList.remove('hidden');
+
+            const img = new Image();
+            img.onload = () => {
+                rawImageObj = img;
+                currentRotation = 0;
+                isBwFilterActive = false;
+                updateBwButtonStyle();
+                renderProcessedImage();
+            };
+            img.src = src;
+        }
+
+        function rotateCurrentImage() {
+            if (!rawImageObj) return;
+            currentRotation = (currentRotation + 90) % 360;
+            renderProcessedImage();
+            markFormDirty();
+        }
+
+        function toggleBwFilter() {
+            if (!rawImageObj) return;
+            isBwFilterActive = !isBwFilterActive;
+            updateBwButtonStyle();
+            renderProcessedImage();
+            markFormDirty();
+        }
+
+        function updateBwButtonStyle() {
+            const btn = document.getElementById('bwFilterBtn');
+            btn.className = isBwFilterActive
+                ? 'px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1 oneui-tap'
+                : 'px-3 py-1.5 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-100 rounded-xl text-xs font-bold shadow-sm flex items-center gap-1 oneui-tap';
+        }
+
+        function renderProcessedImage() {
+            if (!rawImageObj) return;
+            const badge = document.getElementById('imageProcessingBadge');
+            badge.classList.remove('hidden');
+
+            requestAnimationFrame(() => {
+                const MAX_WIDTH = 1200;
+                const isRotated = (currentRotation === 90 || currentRotation === 270);
+                let scale = 1;
+                if (Math.max(rawImageObj.width, rawImageObj.height) > MAX_WIDTH) {
+                    scale = MAX_WIDTH / Math.max(rawImageObj.width, rawImageObj.height);
+                }
+
+                const drawW = Math.round(rawImageObj.width * scale);
+                const drawH = Math.round(rawImageObj.height * scale);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = isRotated ? drawH : drawW;
+                canvas.height = isRotated ? drawW : drawH;
+
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.filter = isBwFilterActive
+                    ? 'grayscale(100%) contrast(1.45) brightness(1.05)'
+                    : 'contrast(1.06)';
+
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate((currentRotation * Math.PI) / 180);
+                ctx.drawImage(rawImageObj, -drawW / 2, -drawH / 2, drawW, drawH);
+                ctx.restore();
+
+                // JPEG kvaliteta 0.75 za brzu sinkronizaciju s Google Driveom
+                currentProcessedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+                document.getElementById('imagePreview').src = currentProcessedBase64;
+                badge.classList.add('hidden');
+            });
+        }
+
+        function removeSelectedImage() {
+            rawImageObj = null;
+            currentProcessedBase64 = null;
+            currentRotation = 0;
+            isBwFilterActive = false;
+            document.getElementById('fallbackCameraInput').value = '';
+            document.getElementById('galleryInput').value = '';
+            document.getElementById('imagePreview').src = '';
+            document.getElementById('imagePreviewContainer').classList.add('hidden');
+            document.getElementById('imageUploadButtons').classList.remove('hidden');
+            markFormDirty();
+        }
+
+        // ==========================================
+        // 5. IZRAČUN JAMSTVA I PRIKAZ LISTE
+        // ==========================================
+        function calculateExpiryDate(purchaseDateStr, months) {
+            const [y, m, d] = purchaseDateStr.split('-').map(Number);
+            return new Date(y, m - 1 + parseInt(months, 10), d);
+        }
+
+        function formatDateHR(dateObj) {
+            if (!dateObj || isNaN(dateObj.getTime())) return '--.--.----.';
+            return `${String(dateObj.getDate()).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}.${dateObj.getFullYear()}.`;
+        }
+
+        function getWarrantyStatus(purchaseDateStr, months) {
+            const expiryDate = calculateExpiryDate(purchaseDateStr, months);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            expiryDate.setHours(0, 0, 0, 0);
+
+            const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+            if (daysRemaining < 0) {
+                return {
+                    code: 'expired',
+                    label: 'Isteklo',
+                    daysRemaining,
+                    remainingText: `Isteklo prije ${Math.abs(daysRemaining)} d.`,
+                    badgeClass: 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300',
+                    textClass: 'text-rose-600 dark:text-rose-400',
+                    expiryFormatted: formatDateHR(expiryDate)
+                };
+            } else if (daysRemaining <= 30) {
+                return {
+                    code: 'expiring',
+                    label: 'Uskoro istječe',
+                    daysRemaining,
+                    remainingText: daysRemaining === 0 ? 'Istječe danas!' : `Još ${daysRemaining} dana`,
+                    badgeClass: 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300',
+                    textClass: 'text-amber-600 dark:text-amber-400',
+                    expiryFormatted: formatDateHR(expiryDate)
+                };
+            } else {
+                return {
+                    code: 'active',
+                    label: 'Aktivno',
+                    daysRemaining,
+                    remainingText: `Još ${daysRemaining} dana`,
+                    badgeClass: 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300',
+                    textClass: 'text-emerald-600 dark:text-emerald-400',
+                    expiryFormatted: formatDateHR(expiryDate)
+                };
+            }
+        }
+
+        function updateStats() {
+            let active = 0, expiring = 0, expired = 0;
+            allItems.forEach(item => {
+                const st = getWarrantyStatus(item.purchaseDate, item.warrantyMonths);
+                if (st.code === 'active') active++;
+                else if (st.code === 'expiring') expiring++;
+                else expired++;
+            });
+            document.getElementById('stat-total').textContent = allItems.length;
+            document.getElementById('stat-active').textContent = active;
+            document.getElementById('stat-expiring').textContent = expiring;
+            document.getElementById('stat-expired').textContent = expired;
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.className = (btn.dataset.filter === filter)
+                    ? 'filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-blue-600 text-white shadow-sm'
+                    : 'filter-btn px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition bg-white dark:bg-samsung-darkCard text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800';
+            });
+            renderList();
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('clearSearchBtn').classList.add('hidden');
+            renderList();
+        }
+
+        function renderList() {
+            const container = document.getElementById('itemsContainer');
+            const emptyState = document.getElementById('emptyState');
+            const query = document.getElementById('searchInput').value.trim().toLowerCase();
+            
+            document.getElementById('clearSearchBtn').classList.toggle('hidden', query.length === 0);
+
+            const filtered = allItems.filter(item => {
+                const status = getWarrantyStatus(item.purchaseDate, item.warrantyMonths);
+                if (currentFilter !== 'all' && status.code !== currentFilter) return false;
+                if (query) {
+                    const hay = `${item.name} ${item.store || ''} ${item.description || ''}`.toLowerCase();
+                    return hay.includes(query);
+                }
+                return true;
+            });
+
+            filtered.sort((a, b) => {
+                const statA = getWarrantyStatus(a.purchaseDate, a.warrantyMonths);
+                const statB = getWarrantyStatus(b.purchaseDate, b.warrantyMonths);
+                if (statA.daysRemaining >= 0 && statB.daysRemaining < 0) return -1;
+                if (statA.daysRemaining < 0 && statB.daysRemaining >= 0) return 1;
+                if (statA.daysRemaining >= 0 && statB.daysRemaining >= 0) return statA.daysRemaining - statB.daysRemaining;
+                return statB.daysRemaining - statA.daysRemaining;
+            });
+
+            container.innerHTML = '';
+            if (filtered.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            filtered.forEach(item => {
+                const status = getWarrantyStatus(item.purchaseDate, item.warrantyMonths);
+                const purchaseFormatted = formatDateHR(new Date(item.purchaseDate));
+
+                const card = document.createElement('div');
+                card.onclick = () => openDetailModal(item.id);
+                card.className = 'cursor-pointer bg-white dark:bg-samsung-darkCard rounded-oneui p-3.5 shadow-sm border border-slate-200/70 dark:border-slate-800 flex items-center gap-3.5 oneui-tap';
+
+                const thumb = item.receiptImage
+                    ? `<img src="${item.receiptImage}" loading="lazy" alt="Račun" class="w-14 h-16 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0 bg-slate-100">`
+                    : `<div class="w-14 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-center text-slate-400 flex-shrink-0">
+                         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                         <span class="text-[9px] mt-0.5 font-semibold">Račun</span>
+                       </div>`;
+
+                card.innerHTML = `
+                    ${thumb}
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-2">
+                            <h3 class="font-bold text-sm sm:text-base truncate">${escapeHTML(item.name)}</h3>
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${status.badgeClass}">
+                                ${status.remainingText}
+                            </span>
+                        </div>
+                        ${(item.store || item.description) ? `<p class="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">${escapeHTML([item.store, item.description].filter(Boolean).join(' • '))}</p>` : ''}
+                        <div class="flex items-center gap-3 mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span>Kupljeno: ${purchaseFormatted}</span>
+                            <span class="font-bold ${status.textClass}">Do ${status.expiryFormatted}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // ==========================================
+        // 6. UNOS, UREĐIVANJE I DETALJI
+        // ==========================================
+        function openFormModal(itemToEdit = null) {
+            document.getElementById('warrantyForm').reset();
+            removeSelectedImage();
+            isFormDirty = false;
+
+            if (itemToEdit) {
+                document.getElementById('formModalTitle').textContent = 'Uredi uređaj i račun';
+                document.getElementById('itemId').value = itemToEdit.id;
+                document.getElementById('deviceName').value = itemToEdit.name;
+                document.getElementById('storeName').value = itemToEdit.store || '';
+                document.getElementById('serialNumber').value = itemToEdit.description || '';
+                document.getElementById('purchaseDate').value = itemToEdit.purchaseDate;
+                document.getElementById('warrantyMonths').value = itemToEdit.warrantyMonths;
+                if (itemToEdit.receiptImage) loadImageIntoProcessor(itemToEdit.receiptImage);
+            } else {
+                document.getElementById('formModalTitle').textContent = 'Novi uređaj i račun';
+                document.getElementById('itemId').value = '';
+                document.getElementById('purchaseDate').value = new Date().toISOString().split('T')[0];
+                document.getElementById('warrantyMonths').value = 24;
+            }
+
+            updateCalculatedExpiry();
+            openModal('formModal');
+        }
+
+        function setWarrantyMonths(m) {
+            document.getElementById('warrantyMonths').value = m;
+            markFormDirty();
+            updateCalculatedExpiry();
+        }
+
+        function updateCalculatedExpiry() {
+            const d = document.getElementById('purchaseDate').value;
+            const m = document.getElementById('warrantyMonths').value;
+            document.getElementById('calculatedExpiryDisplay').textContent = (d && m > 0)
+                ? formatDateHR(calculateExpiryDate(d, m))
+                : '--.--.----.';
+        }
+
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+            const idInput = document.getElementById('itemId').value;
+            const name = document.getElementById('deviceName').value.trim();
+            const store = document.getElementById('storeName').value.trim();
+            const description = document.getElementById('serialNumber').value.trim();
+            const purchaseDate = document.getElementById('purchaseDate').value;
+            const warrantyMonths = parseInt(document.getElementById('warrantyMonths').value, 10);
+
+            if (!name || !purchaseDate || !warrantyMonths) return;
+
+            const itemData = {
+                id: idInput || 'mjp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                name,
+                store,
+                description,
+                purchaseDate,
+                warrantyMonths,
+                receiptImage: currentProcessedBase64,
+                updatedAt: new Date().toISOString()
+            };
+
+            await saveItemToDB(itemData);
+            isFormDirty = false;
+            await loadAllItems();
+            requestCloseModal();
+            showToast(idInput ? 'Promjene su spremljene' : 'Račun je spremljen');
+
+            // Automatska sinkronizacija u pozadini ako je Google Drive povezan
+            if (isDriveConnected) syncWithGoogleDrive(false);
+        }
+
+        function openDetailModal(id) {
+            const item = allItems.find(i => i.id === id);
+            if (!item) return;
+
+            activeDetailItem = item;
+            const status = getWarrantyStatus(item.purchaseDate, item.warrantyMonths);
+
+            const badge = document.getElementById('detailStatusBadge');
+            badge.textContent = status.label;
+            badge.className = `px-3 py-1 rounded-full text-xs font-extrabold ${status.badgeClass}`;
+
+            document.getElementById('detailName').textContent = item.name;
+            const storeEl = document.getElementById('detailStore');
+            storeEl.textContent = item.store ? `Trgovina: ${item.store}` : '';
+            storeEl.classList.toggle('hidden', !item.store);
+
+            const descEl = document.getElementById('detailDesc');
+            descEl.textContent = item.description || '';
+            descEl.classList.toggle('hidden', !item.description);
+
+            document.getElementById('detailPurchaseDate').textContent = formatDateHR(new Date(item.purchaseDate));
+            document.getElementById('detailDuration').textContent = `${item.warrantyMonths} mj.`;
+            document.getElementById('detailExpiryDate').textContent = status.expiryFormatted;
+
+            const remEl = document.getElementById('detailRemaining');
+            remEl.textContent = status.remainingText;
+            remEl.className = `text-sm font-extrabold mt-0.5 block ${status.textClass}`;
+
+            const imgContainer = document.getElementById('detailReceiptContainer');
+            const noReceiptEl = document.getElementById('detailNoReceipt');
+            const downloadBtn = document.getElementById('downloadReceiptBtn');
+
+            if (item.receiptImage) {
+                document.getElementById('detailReceiptImg').src = item.receiptImage;
+                imgContainer.classList.remove('hidden');
+                downloadBtn.classList.remove('hidden');
+                noReceiptEl.classList.add('hidden');
+            } else {
+                imgContainer.classList.add('hidden');
+                downloadBtn.classList.add('hidden');
+                noReceiptEl.classList.remove('hidden');
+            }
+
+            openModal('detailModal');
+        }
+
+        function editCurrentItem() {
+            if (!activeDetailItem) return;
+            const item = activeDetailItem;
+            closeAllModalsVisually();
+            openFormModal(item);
+        }
+
+        function promptDeleteCurrentItem() {
+            if (activeDetailItem) document.getElementById('confirmDeleteModal').classList.remove('hidden');
+        }
+
+        function closeConfirmDelete() {
+            document.getElementById('confirmDeleteModal').classList.add('hidden');
+        }
+
+        async function confirmDeleteItem() {
+            if (!activeDetailItem) return;
+            await deleteItemFromDB(activeDetailItem.id);
+            await loadAllItems();
+            closeConfirmDelete();
+            requestCloseModal();
+            showToast('Uređaj je obrisan');
+            if (isDriveConnected) syncWithGoogleDrive(false);
+        }
+
+        function openFullscreenReceipt() {
+            if (!activeDetailItem || !activeDetailItem.receiptImage) return;
+            isZoomed = false;
+            const img = document.getElementById('fullscreenImg');
+            img.src = activeDetailItem.receiptImage;
+            img.style.transform = 'scale(1)';
+            document.getElementById('fullscreenModal').classList.remove('hidden');
+            window.history.pushState({ modal: 'fullscreen' }, '', '#fullscreen');
+        }
+
+        function toggleZoom() {
+            const img = document.getElementById('fullscreenImg');
+            isZoomed = !isZoomed;
+            img.style.transform = isZoomed ? 'scale(1.85)' : 'scale(1)';
+            img.style.transformOrigin = 'top center';
+        }
+
+        function downloadCurrentReceipt() {
+            if (!activeDetailItem || !activeDetailItem.receiptImage) return;
+            const link = document.createElement('a');
+            const safeName = activeDetailItem.name.replace(/[^a-z0-9čćžšđ]/gi, '_').toLowerCase();
+            link.href = activeDetailItem.receiptImage;
+            link.download = `racun_${safeName}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // ==========================================
+        // 7. TEMA (ONE UI DARK/LIGHT), EXPORT I IMPORT
+        // ==========================================
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            const isDark = html.classList.toggle('dark');
+            localStorage.setItem('mjp_theme', isDark ? 'dark' : 'light');
+            updateThemeIcons(isDark);
+        }
+
+        function updateThemeIcons(isDark) {
+            document.getElementById('themeSunIcon').classList.toggle('hidden', !isDark);
+            document.getElementById('themeMoonIcon').classList.toggle('hidden', isDark);
+            document.getElementById('themeColorMeta').content = isDark ? '#0b0c10' : '#f2f4f7';
+        }
+
+        function downloadAppSource() {
+            const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+            const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'index.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Preuzeto: index.html');
+        }
+
+        function exportDatabase() {
+            if (allItems.length === 0) {
+                showToast('Nema podataka za izvoz.');
+                return;
+            }
+            const blob = new Blob([JSON.stringify(allItems, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const dateStr = new Date().toISOString().split('T')[0];
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `moja_jamstva_backup_${dateStr}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showToast('Sigurnosna kopija preuzeta');
+        }
+
+        function importDatabase(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                try {
+                    const parsed = JSON.parse(ev.target.result);
+                    const list = Array.isArray(parsed) ? parsed : (parsed.items || []);
+                    let count = 0;
+                    for (const item of list) {
+                        if (item.id && item.name && item.purchaseDate) {
+                            await saveItemToDB(item);
+                            count++;
+                        }
+                    }
+                    await loadAllItems();
+                    requestCloseModal();
+                    showToast(`Uvezeno ${count} uređaja`);
+                    if (isDriveConnected) syncWithGoogleDrive(false);
+                } catch (err) {
+                    showToast('Neispravna JSON datoteka.');
+                }
+                e.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function escapeHTML(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        let toastTimer;
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = msg;
+            t.classList.remove('hidden');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => t.classList.add('hidden'), 3200);
+        }
+
+        // ==========================================
+        // 8. POKRETANJE APLIKACIJE
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Postavljanje teme (prati sustav ako nije ručno odabrano)
+            const savedTheme = localStorage.getItem('mjp_theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const isDark = savedTheme ? (savedTheme === 'dark') : prefersDark;
+            document.documentElement.classList.toggle('dark', isDark);
+            updateThemeIcons(isDark);
+
+            // Popunjavanje spremljenog Client ID-a i provjera protokola
+            const savedClientId = localStorage.getItem(DRIVE_CLIENT_ID_KEY) || '';
+            document.getElementById('googleClientIdInput').value = savedClientId;
+
+            if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                document.getElementById('protocolWarningBox').classList.remove('hidden');
+                document.getElementById('currentOriginDisplay').textContent = window.location.protocol;
+            } else {
+                document.getElementById('originHintText').textContent = window.location.origin;
+            }
+
+            try { await initDB(); } catch (e) {}
+            await loadAllItems();
+        });
+    </script>
+</body>
+</html>
